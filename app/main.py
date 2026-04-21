@@ -18,6 +18,7 @@ from app.services import (
     changeStudentPassword,
     getActivity,
     logScore,
+    chat,
     instructorLogin,
     setInstructorPassword,
     changeInstructorPassword,
@@ -66,6 +67,13 @@ class LogScoreBody(BaseModel):
     activity_no: int
     score: float
     meta: str | None = None
+
+class ChatBody(BaseModel):
+    email: str
+    password: str
+    course_id: str
+    activity_no: int
+    message: str
 
 class InstructorLoginBody(BaseModel):
     email: str
@@ -146,6 +154,11 @@ def route_get_activity(body: GetActivityBody):
 @app.post("/student/log-score")
 def route_log_score(body: LogScoreBody):
     return logScore(body.email, body.password, body.course_id, body.activity_no, body.score, body.meta)
+
+
+@app.post("/student/chat")
+def route_chat(body: ChatBody):
+    return chat(body.email, body.password, body.course_id, body.activity_no, body.message)
 
 
 # ---------------------------------------------------------------------------

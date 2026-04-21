@@ -1,6 +1,9 @@
 import hashlib
 import csv
 import io
+import os
+import httpx
+from typing import Optional
 from app.database import supabase_client
 
 
@@ -482,6 +485,179 @@ def resetActivity(email: str, password: str, course_id: str, activity_no: int) -
         # Set status to ENDED
         supabase_client.table("activities").update({"status": "ENDED"}).eq("id", activity["id"]).execute()
         return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def chat(email: str, password: str, course_id: str, activity_no: int, message: str) -> dict:
+    """US-J: Student tutoring flow via LLM."""
+    try:
+        # Authenticate
+        student, err = _auth_student(email, password)
+        if err:
+            return {"ok": False, "error": err}
+
+        # Check activity is ACTIVE
+        activity, err = _get_activity(course_id, activity_no)
+        if err:
+            return {"ok": False, "error": err}
+        if activity.get("status") != "ACTIVE":
+            return {"ok": False, "error": "Activity is not active"}
+
+        # Check enrollment
+        try:
+            enrollment_res = (
+                supabase_client
+                .table("enrollments")
+                .select("id")
+                .eq("course_id", course_id)
+                .eq("student_id", student["id"])
+                .single()
+                .execute()
+            )
+            if not enrollment_res.data:
+                return {"ok": False, "error": "Student is not enrolled in this course"}
+        except Exception:
+            return {"ok": False, "error": "Student is not enrolled in this course"}
+
+        # Load or create student_progress
+        try:
+            progress_res = (
+                supabase_client
+                .table("student_progress")
+                .select("*")
+                .eq("student_id", student["id"])
+                .eq("course_id", course_id)
+                .eq("activity_no", activity_no)
+                .single()
+                .execute()
+            )
+            progress = progress_res.data
+        except Exception:
+            progress = None
+
+        if progress is None:
+            new_progress = {
+                "student_id": student["id"],
+                "course_id": course_id,
+                "activity_no": activity_no,
+                "conversation_history": [],
+                "achieved_objectives": [],
+                "is_completed": False,
+            }
+            insert_res = supabase_client.table("student_progress").insert(new_progress).execute()
+            progress = insert_res.data[0] if insert_res.data else new_progress
+
+        if progress.get("is_completed"):
+            return {"ok": False, "error": "Activity already completed"}
+
+        conversation_history = progress.get("conversation_history") or []
+        achieved_objectives = progress.get("achieved_objectives") or []
+        learning_objectives = activity.get("learning_objectives") or []
+
+        # Build system prompt
+        objectives_str = "\n".join(f"- {obj}" for obj in learning_objectives)
+        system_prompt = f"""You are an expert Socratic tutor integrated into a university classroom activity system. Your role is to guide students toward genuine understanding through thoughtful questioning — never by giving away answers.
+
+## Context
+Activity: {activity["activity_text"]}
+
+Learning Objectives (CONFIDENTIAL — never mention or list these to the student):
+{objectives_str}
+
+## Your Behavior Rules
+
+### Questioning
+- Ask exactly ONE clear, focused question per response.
+- Start from the student's current level — if their answer is vague, ask a simpler clarifying question first.
+- Gradually increase depth: start with "what", move to "how", then "why".
+- Never ask multiple questions in one turn.
+
+### Guidance Style
+- Use the Socratic method: respond to the student's answer, acknowledge what is correct, gently challenge what is incomplete.
+- Never reveal learning objectives directly.
+- Never give the full answer — guide the student to discover it themselves.
+- If the student is stuck, provide a small conceptual hint, then ask again.
+- Always use correct academic terminology from the activity.
+- All responses must be in English.
+
+### Objective Detection
+- Carefully evaluate each student response against the learning objectives.
+- An objective is achieved when the student's own words clearly demonstrate understanding of that concept — not just when they repeat a keyword.
+- When an objective is achieved, append this exact JSON marker on a new line at the end of your response (replace with exact objective text):
+  {{"objective_achieved": "EXACT_OBJECTIVE_TEXT"}}
+- Only mark an objective as achieved once. Do not re-award it.
+- After marking an objective, continue naturally with the next guiding question toward the remaining objectives.
+
+### Completion
+- When ALL objectives have been achieved, write a brief congratulatory message summarizing what the student learned, then append on a new line:
+  {{"all_objectives_completed": true}}
+
+### Tone
+- Be encouraging and patient.
+- Celebrate correct answers briefly before moving on.
+- Never be condescending or dismissive.
+- Keep responses concise — 2 to 4 sentences maximum before the question.
+
+## Important
+You are an academic tool used in a real university course. Accuracy, clarity, and pedagogical quality matter. Never go off-topic. Never discuss anything outside the scope of the activity."""
+
+        # Build messages list
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(conversation_history)
+        messages.append({"role": "user", "content": message})
+
+        # Call OpenRouter
+        api_key = os.environ["OPENROUTER_API_KEY"]
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "inclusionai/ling-2.6-flash:free",
+                    "messages": messages,
+                },
+            )
+            resp.raise_for_status()
+            llm_response_text = resp.json()["choices"][0]["message"]["content"]
+
+        # Parse objective_achieved markers
+        newly_achieved = []
+        import re
+        for match in re.finditer(r'\{"objective_achieved":\s*"([^"]+)"\}', llm_response_text):
+            objective = match.group(1)
+            if objective not in achieved_objectives:
+                achieved_objectives.append(objective)
+                newly_achieved.append(objective)
+
+        # Log score for each newly achieved objective
+        for objective in newly_achieved:
+            logScore(email, password, course_id, activity_no, score=1.0, meta=f"Objective achieved: {objective}")
+
+        # Check completion
+        is_completed = bool(re.search(r'\{"all_objectives_completed":\s*true\}', llm_response_text))
+
+        # Update conversation history
+        conversation_history.append({"role": "user", "content": message})
+        conversation_history.append({"role": "assistant", "content": llm_response_text})
+
+        # Save progress
+        supabase_client.table("student_progress").update({
+            "conversation_history": conversation_history,
+            "achieved_objectives": achieved_objectives,
+            "is_completed": is_completed,
+            "updated_at": "now()",
+        }).eq("student_id", student["id"]).eq("course_id", course_id).eq("activity_no", activity_no).execute()
+
+        return {
+            "ok": True,
+            "response": llm_response_text,
+            "score": len(achieved_objectives),
+            "completed": is_completed,
+        }
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

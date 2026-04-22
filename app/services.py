@@ -15,11 +15,14 @@ def _hash(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-def _auth_student(email: str, password: str):
+def _auth_student(email: str, password: str | None = None, token: str | None = None):
     """
     Returns (student_row, None) on success, or (None, error_str) on failure.
-    Looks up the student by email and validates the hashed password.
+    Looks up the student by email and validates the hashed password or token.
     """
+    if not password and not token:
+        return None, "No credentials provided"
+
     try:
         res = (
             supabase_client
@@ -35,15 +38,35 @@ def _auth_student(email: str, password: str):
 
     if student is None:
         return None, "Student not found"
-    if student.get("password_hash") != _hash(password):
-        return None, "Invalid password"
-    return student, None
+
+    if token:
+        try:
+            from google.oauth2 import id_token
+            from google.auth.transport import requests as google_requests
+            
+            client_id = os.environ.get("GOOGLE_CLIENT_ID")
+            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+            if idinfo.get("email") != email:
+                return None, "Token email mismatch"
+            return student, None
+        except Exception as e:
+            return None, f"Invalid token: {str(e)}"
+
+    if password:
+        if student.get("password_hash") != _hash(password):
+            return None, "Invalid password"
+        return student, None
+
+    return None, "Authentication failed"
 
 
-def _auth_instructor(email: str, password: str):
+def _auth_instructor(email: str, password: str | None = None, token: str | None = None):
     """
     Returns (instructor_row, None) on success, or (None, error_str) on failure.
     """
+    if not password and not token:
+        return None, "No credentials provided"
+
     try:
         res = (
             supabase_client
@@ -59,9 +82,26 @@ def _auth_instructor(email: str, password: str):
 
     if instructor is None:
         return None, "Instructor not found"
-    if instructor.get("password_hash") != _hash(password):
-        return None, "Invalid password"
-    return instructor, None
+
+    if token:
+        try:
+            from google.oauth2 import id_token
+            from google.auth.transport import requests as google_requests
+            
+            client_id = os.environ.get("GOOGLE_CLIENT_ID")
+            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+            if idinfo.get("email") != email:
+                return None, "Token email mismatch"
+            return instructor, None
+        except Exception as e:
+            return None, f"Invalid token: {str(e)}"
+
+    if password:
+        if instructor.get("password_hash") != _hash(password):
+            return None, "Invalid password"
+        return instructor, None
+
+    return None, "Authentication failed"
 
 
 def _instructor_owns_course(instructor_id, course_id: str) -> bool:
@@ -73,6 +113,23 @@ def _instructor_owns_course(instructor_id, course_id: str) -> bool:
             .select("id")
             .eq("id", course_id)
             .eq("instructor_id", instructor_id)
+            .single()
+            .execute()
+        )
+        return res.data is not None
+    except Exception:
+        return False
+
+
+def _student_enrolled_in_course(student_id, course_id: str) -> bool:
+    """Returns True if the student is enrolled in the given course."""
+    try:
+        res = (
+            supabase_client
+            .table("enrollments")
+            .select("id")
+            .eq("course_id", course_id)
+            .eq("student_id", student_id)
             .single()
             .execute()
         )
@@ -106,9 +163,9 @@ def _get_activity(course_id: str, activity_no: int):
 # Student functions
 # ---------------------------------------------------------------------------
 
-def studentLogin(email: str, password: str) -> dict:
+def studentLogin(email: str, password: str | None = None, token: str | None = None) -> dict:
     try:
-        student, err = _auth_student(email, password)
+        student, err = _auth_student(email, password, token)
         if err:
             return {"ok": False, "error": err}
         return {"ok": True, "student": {k: v for k, v in student.items() if k != "password_hash"}}
@@ -116,7 +173,7 @@ def studentLogin(email: str, password: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def setStudentPassword(email: str, password: str) -> dict:
+def setStudentPassword(email: str, password: str | None = None, token: str | None = None) -> dict:
     """Sets the password only if the student has no password yet."""
     try:
         res = (
@@ -143,9 +200,9 @@ def setStudentPassword(email: str, password: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def changeStudentPassword(email: str, password: str, new_password: str, old_password: str) -> dict:
+def changeStudentPassword(email: str, password: str | None = None, new_password: str = "", old_password: str | None = None, token: str | None = None) -> dict:
     try:
-        student, err = _auth_student(email, old_password)
+        student, err = _auth_student(email, old_password, token)
         if err:
             return {"ok": False, "error": err}
         supabase_client.table("students").update({"password_hash": _hash(new_password)}).eq("id", student["id"]).execute()
@@ -154,11 +211,14 @@ def changeStudentPassword(email: str, password: str, new_password: str, old_pass
         return {"ok": False, "error": str(e)}
 
 
-def getActivity(email: str, password: str, course_id: str, activity_no: int) -> dict:
+def getActivity(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, token: str | None = None) -> dict:
     try:
-        _, err = _auth_student(email, password)
+        student, err = _auth_student(email, password, token)
         if err:
             return {"ok": False, "error": err}
+
+        if not _student_enrolled_in_course(student["id"], course_id):
+            return {"ok": False, "error": "Student is not enrolled in this course"}
 
         activity, err = _get_activity(course_id, activity_no)
         if err:
@@ -178,11 +238,14 @@ def getActivity(email: str, password: str, course_id: str, activity_no: int) -> 
         return {"ok": False, "error": str(e)}
 
 
-def logScore(email: str, password: str, course_id: str, activity_no: int, score: float, meta: str | None = None) -> dict:
+def logScore(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, score: float = 0.0, meta: str | None = None, token: str | None = None) -> dict:
     try:
-        student, err = _auth_student(email, password)
+        student, err = _auth_student(email, password, token)
         if err:
             return {"ok": False, "error": err}
+
+        if not _student_enrolled_in_course(student["id"], course_id):
+            return {"ok": False, "error": "Student is not enrolled in this course"}
 
         activity, err = _get_activity(course_id, activity_no)
         if err:
@@ -211,9 +274,9 @@ def logScore(email: str, password: str, course_id: str, activity_no: int, score:
 # Instructor functions
 # ---------------------------------------------------------------------------
 
-def instructorLogin(email: str, password: str) -> dict:
+def instructorLogin(email: str, password: str | None = None, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
         return {"ok": True, "instructor": {k: v for k, v in instructor.items() if k != "password_hash"}}
@@ -221,7 +284,7 @@ def instructorLogin(email: str, password: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def setInstructorPassword(email: str, password: str | None = None) -> dict:
+def setInstructorPassword(email: str, password: str | None = None, token: str | None = None) -> dict:
     """Sets the password only if the instructor has no password yet."""
     try:
         res = (
@@ -250,9 +313,9 @@ def setInstructorPassword(email: str, password: str | None = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def changeInstructorPassword(email: str, password: str, old_password: str, new_password: str) -> dict:
+def changeInstructorPassword(email: str, password: str | None = None, old_password: str | None = None, new_password: str = "", token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, old_password)
+        instructor, err = _auth_instructor(email, old_password, token)
         if err:
             return {"ok": False, "error": err}
         supabase_client.table("instructors").update({"password_hash": _hash(new_password)}).eq("id", instructor["id"]).execute()
@@ -261,9 +324,9 @@ def changeInstructorPassword(email: str, password: str, old_password: str, new_p
         return {"ok": False, "error": str(e)}
 
 
-def listMyCourses(email: str, password: str) -> dict:
+def listMyCourses(email: str, password: str | None = None, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -279,9 +342,9 @@ def listMyCourses(email: str, password: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def listActivities(email: str, password: str, course_id: str) -> dict:
+def listActivities(email: str, password: str | None = None, course_id: str = "", token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -303,14 +366,15 @@ def listActivities(email: str, password: str, course_id: str) -> dict:
 
 def createActivity(
     email: str,
-    password: str,
+    password: str | None,
     course_id: str,
     activity_text: str,
     learning_objectives: list[str],
     activity_no_optional: int | None = None,
+    token: str | None = None,
 ) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -364,9 +428,9 @@ def createActivity(
         return {"ok": False, "error": str(e)}
 
 
-def updateActivity(email: str, password: str, course_id: str, activity_no: int, patch: dict) -> dict:
+def updateActivity(email: str, password: str | None, course_id: str, activity_no: int, patch: dict, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -394,9 +458,9 @@ def updateActivity(email: str, password: str, course_id: str, activity_no: int, 
         return {"ok": False, "error": str(e)}
 
 
-def startActivity(email: str, password: str, course_id: str, activity_no: int) -> dict:
+def startActivity(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -413,9 +477,9 @@ def startActivity(email: str, password: str, course_id: str, activity_no: int) -
         return {"ok": False, "error": str(e)}
 
 
-def endActivity(email: str, password: str, course_id: str, activity_no: int) -> dict:
+def endActivity(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -432,9 +496,9 @@ def endActivity(email: str, password: str, course_id: str, activity_no: int) -> 
         return {"ok": False, "error": str(e)}
 
 
-def exportScores(email: str, password: str, course_id: str, activity_no: int) -> dict:
+def exportScores(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -466,10 +530,10 @@ def exportScores(email: str, password: str, course_id: str, activity_no: int) ->
         return {"ok": False, "error": str(e)}
 
 
-def resetActivity(email: str, password: str, course_id: str, activity_no: int) -> dict:
+def resetActivity(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     """Delete all score records for this activity and set status to ENDED."""
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -489,11 +553,11 @@ def resetActivity(email: str, password: str, course_id: str, activity_no: int) -
         return {"ok": False, "error": str(e)}
 
 
-def chat(email: str, password: str, course_id: str, activity_no: int, message: str) -> dict:
+def chat(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, message: str = "", token: str | None = None) -> dict:
     """US-J: Student tutoring flow via LLM."""
     try:
         # Authenticate
-        student, err = _auth_student(email, password)
+        student, err = _auth_student(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -505,19 +569,7 @@ def chat(email: str, password: str, course_id: str, activity_no: int, message: s
             return {"ok": False, "error": "Activity is not active"}
 
         # Check enrollment
-        try:
-            enrollment_res = (
-                supabase_client
-                .table("enrollments")
-                .select("id")
-                .eq("course_id", course_id)
-                .eq("student_id", student["id"])
-                .single()
-                .execute()
-            )
-            if not enrollment_res.data:
-                return {"ok": False, "error": "Student is not enrolled in this course"}
-        except Exception:
+        if not _student_enrolled_in_course(student["id"], course_id):
             return {"ok": False, "error": "Student is not enrolled in this course"}
 
         # Load or create student_progress
@@ -662,9 +714,9 @@ You are an academic tool used in a real university course. Accuracy, clarity, an
         return {"ok": False, "error": str(e)}
 
 
-def resetStudentPassword(email: str, password: str, course_id: str, student_email: str, new_password: str) -> dict:
+def resetStudentPassword(email: str, password: str | None, course_id: str, student_email: str, new_password: str, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 

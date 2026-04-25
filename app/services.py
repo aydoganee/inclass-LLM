@@ -7,7 +7,6 @@ from typing import Optional
 from app.database import supabase_client
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -36,6 +35,7 @@ def _auth_student(email: str, password: str | None = None, token: str | None = N
         student = res.data
     except Exception as e:
         return None, f"Student not found: {e}"
+
     if student is None:
         return None, "Student not found"
 
@@ -746,60 +746,5 @@ def resetStudentPassword(email: str, password: str | None, course_id: str, stude
 
         supabase_client.table("students").update({"password_hash": _hash(new_password)}).eq("id", student_id).execute()
         return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-def logManualScore(
-    email: str,
-    password: str | None,
-    course_id: str,
-    activity_no: int,
-    student_email: str,
-    score: float,
-    token: str | None = None,
-) -> dict:
-    try:
-        instructor, err = _auth_instructor(email, password, token)
-        if err:
-            return {"ok": False, "error": err}
-
-        if not _instructor_owns_course(instructor["id"], course_id):
-            return {"ok": False, "error": "Course not found or access denied"}
-
-        activity, err = _get_activity(course_id, activity_no)
-        if err:
-            return {"ok": False, "error": err}
-
-        student_res = (
-            supabase_client
-            .table("students")
-            .select("id, email")
-            .eq("email", student_email)
-            .single()
-            .execute()
-        )
-        student = student_res.data
-
-        if student is None:
-            return {"ok": False, "error": "Student not found"}
-
-        if not _student_enrolled_in_course(student["id"], course_id):
-            return {"ok": False, "error": "Student is not enrolled in this course"}
-
-        record = {
-            "student_id": student["id"],
-            "activity_id": activity["id"],
-            "course_id": course_id,
-            "activity_no": activity_no,
-            "score": score,
-            "meta": "Manual grading event",
-        }
-
-        result = supabase_client.table("scores").insert(record).execute()
-
-        return {
-            "ok": True,
-            "score": result.data[0] if result.data else record
-        }
-
     except Exception as e:
         return {"ok": False, "error": str(e)}

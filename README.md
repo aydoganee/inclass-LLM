@@ -47,6 +47,6 @@ A FastAPI-based backend for the InClass LLM Platform.
 ## Running Tests
 
 ```bash
-pytest tests/
+ python -m uvicorn app.main:app --reload
 ```
 # inclass-LLM

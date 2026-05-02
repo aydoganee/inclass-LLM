@@ -333,14 +333,16 @@ def listMyCourses(email: str, password: str | None = None, token: str | None = N
         res = (
             supabase_client
             .table("courses")
-            .select("*")
+            .select("id, course_name")   # 🔥 sadece bunu değiştirdik
             .eq("instructor_id", instructor["id"])
             .execute()
         )
+
         return {"ok": True, "courses": res.data or []}
+
     except Exception as e:
         return {"ok": False, "error": str(e)}
-
+    
 
 def listActivities(email: str, password: str | None = None, course_id: str = "", token: str | None = None) -> dict:
     try:

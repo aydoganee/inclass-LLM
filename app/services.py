@@ -151,7 +151,7 @@ def _verify_google_token(email: str, token: str):
 # Student functions
 # ---------------------------------------------------------------------------
 
-def studentLogin(email: str, password: str | None = None, token: str | None = None) -> dict:
+def studentLogin(email: str, password: str, token: str | None = None) -> dict:
     try:
         if token:
             ok, err = _verify_google_token(email, token)
@@ -173,7 +173,7 @@ def studentLogin(email: str, password: str | None = None, token: str | None = No
         return {"ok": False, "error": str(e)}
 
 
-def setStudentPassword(email: str, password: str | None = None) -> dict:
+def setStudentPassword(email: str, password: str) -> dict:
     """Sets the password only if the student has no password yet."""
     if not password:
         return {"ok": False, "error": "Password is required"}
@@ -216,7 +216,7 @@ def changeStudentPassword(email: str, password: str, new_password: str, old_pass
         return {"ok": False, "error": str(e)}
 
 
-def getActivity(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0) -> dict:
+def getActivity(email: str, password: str, course_id: str = "", activity_no: int = 0) -> dict:
     try:
         student, err = _auth_student(email, password)
         if err:
@@ -243,7 +243,7 @@ def getActivity(email: str, password: str | None = None, course_id: str = "", ac
         return {"ok": False, "error": str(e)}
 
 
-def logScore(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, score: float = 0.0, meta: str | None = None) -> dict:
+def logScore(email: str, password: str, course_id: str = "", activity_no: int = 0, score: float = 0.0, meta: str | None = None) -> dict:
     try:
         student, err = _auth_student(email, password)
         if err:
@@ -279,7 +279,7 @@ def logScore(email: str, password: str | None = None, course_id: str = "", activ
 # Instructor functions
 # ---------------------------------------------------------------------------
 
-def instructorLogin(email: str, password: str | None = None, token: str | None = None) -> dict:
+def instructorLogin(email: str, password: str, token: str | None = None) -> dict:
     try:
         if token:
             ok, err = _verify_google_token(email, token)
@@ -343,7 +343,7 @@ def changeInstructorPassword(email: str, password: str, old_password: str, new_p
         return {"ok": False, "error": str(e)}
 
 
-def listMyCourses(email: str, password: str | None = None) -> dict:
+def listMyCourses(email: str, password: str) -> dict:
     try:
         instructor, err = _auth_instructor(email, password)
         if err:
@@ -361,7 +361,7 @@ def listMyCourses(email: str, password: str | None = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def listActivities(email: str, password: str | None = None, course_id: str = "") -> dict:
+def listActivities(email: str, password: str, course_id: str = "") -> dict:
     try:
         instructor, err = _auth_instructor(email, password)
         if err:
@@ -385,7 +385,7 @@ def listActivities(email: str, password: str | None = None, course_id: str = "")
 
 def createActivity(
     email: str,
-    password: str | None,
+    password: str,
     course_id: str,
     activity_text: str,
     learning_objectives: list[str],
@@ -446,7 +446,7 @@ def createActivity(
         return {"ok": False, "error": str(e)}
 
 
-def updateActivity(email: str, password: str | None, course_id: str, activity_no: int, patch: dict) -> dict:
+def updateActivity(email: str, password: str, course_id: str, activity_no: int, patch: dict) -> dict:
     try:
         instructor, err = _auth_instructor(email, password)
         if err:
@@ -476,7 +476,7 @@ def updateActivity(email: str, password: str | None, course_id: str, activity_no
         return {"ok": False, "error": str(e)}
 
 
-def startActivity(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def startActivity(email: str, password: str, course_id: str, activity_no: int) -> dict:
     try:
         instructor, err = _auth_instructor(email, password)
         if err:
@@ -495,7 +495,7 @@ def startActivity(email: str, password: str | None, course_id: str, activity_no:
         return {"ok": False, "error": str(e)}
 
 
-def endActivity(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def endActivity(email: str, password: str, course_id: str, activity_no: int) -> dict:
     try:
         instructor, err = _auth_instructor(email, password)
         if err:
@@ -514,7 +514,7 @@ def endActivity(email: str, password: str | None, course_id: str, activity_no: i
         return {"ok": False, "error": str(e)}
 
 
-def exportScores(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def exportScores(email: str, password: str, course_id: str, activity_no: int) -> dict:
     try:
         instructor, err = _auth_instructor(email, password)
         if err:
@@ -548,7 +548,7 @@ def exportScores(email: str, password: str | None, course_id: str, activity_no: 
         return {"ok": False, "error": str(e)}
 
 
-def resetActivity(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def resetActivity(email: str, password: str, course_id: str, activity_no: int) -> dict:
     """Delete all score records for this activity and set status to ENDED."""
     try:
         instructor, err = _auth_instructor(email, password)
@@ -571,7 +571,7 @@ def resetActivity(email: str, password: str | None, course_id: str, activity_no:
         return {"ok": False, "error": str(e)}
 
 
-def chat(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, message: str = "") -> dict:
+def chat(email: str, password: str, course_id: str = "", activity_no: int = 0, message: str = "") -> dict:
     """US-J: Student tutoring flow via LLM."""
     try:
         # Authenticate
@@ -780,7 +780,7 @@ When ALL objectives have been achieved (nothing left in objectives list):
         return {"ok": False, "error": str(e)}
 
 
-def resetStudentPassword(email: str, password: str | None, course_id: str, student_email: str, new_password: str) -> dict:
+def resetStudentPassword(email: str, password: str, course_id: str, student_email: str, new_password: str) -> dict:
     try:
         instructor, err = _auth_instructor(email, password)
         if err:

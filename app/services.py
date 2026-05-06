@@ -259,6 +259,23 @@ def logScore(email: str, password: str | None = None, course_id: str = "", activ
         if activity.get("status") != "ACTIVE":
             return {"ok": False, "error": "Activity is not active"}
 
+        # TEKRAR KONTROLÜ (US-K Kuralı: Repeated achievement does not add score again)
+        # Sadece meta parametresi doluysa (yani spesifik bir objective başıldıysa) kontrol et
+        if meta:
+            # Bu öğrencinin bu aktivitede bu "meta" (hedef) ile bir skoru var mı?
+            existing_score_res = (
+                supabase_client
+                .table("scores")
+                .select("id")
+                .eq("student_id", student["id"])
+                .eq("activity_id", activity["id"])
+                .eq("meta", meta)
+                .execute()
+            )
+            # Eğer varsa, tekrar ekleme, sessizce başarılı dön
+            if existing_score_res.data:
+                return {"ok": True, "message": "Objective already achieved, score not duplicated"}
+
         record = {
             "student_id": student["id"],
             "activity_id": activity["id"],
@@ -564,6 +581,14 @@ def resetActivity(email: str, password: str | None, course_id: str, activity_no:
 
         # Delete all scores
         supabase_client.table("scores").delete().eq("activity_id", activity["id"]).execute()
+
+        # Ekstra: Öğrenci ilerlemelerini de sil (Altay'ın oluşturduğu tablo)
+        try:
+            supabase_client.table("student_progress").delete().eq("course_id", course_id).eq("activity_no",
+                                                                                             activity_no).execute()
+        except Exception as e:
+            pass  # Tablo yoksa veya hata verirse ana akışı bozmasın
+
         # Set status to ENDED
         supabase_client.table("activities").update({"status": "ENDED"}).eq("id", activity["id"]).execute()
         return {"ok": True}

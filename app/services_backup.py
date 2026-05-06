@@ -1,10 +1,7 @@
 import hashlib
 import csv
 import io
-import json
-import logging
 import os
-import re
 import httpx
 from typing import Optional
 from app.database import supabase_client
@@ -18,12 +15,12 @@ def _hash(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-def _auth_student(email: str, password: str | None = None):
+def _auth_student(email: str, password: str | None = None, token: str | None = None):
     """
     Returns (student_row, None) on success, or (None, error_str) on failure.
-    Looks up the student by email and validates the hashed password.
+    Looks up the student by email and validates the hashed password or token.
     """
-    if not password:
+    if not password and not token:
         return None, "No credentials provided"
 
     try:
@@ -42,16 +39,32 @@ def _auth_student(email: str, password: str | None = None):
     if student is None:
         return None, "Student not found"
 
-    if student.get("password_hash") != _hash(password):
-        return None, "Invalid password"
-    return student, None
+    if token:
+        try:
+            from google.oauth2 import id_token
+            from google.auth.transport import requests as google_requests
+            
+            client_id = os.environ.get("GOOGLE_CLIENT_ID")
+            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+            if idinfo.get("email") != email:
+                return None, "Token email mismatch"
+            return student, None
+        except Exception as e:
+            return None, f"Invalid token: {str(e)}"
+
+    if password:
+        if student.get("password_hash") != _hash(password):
+            return None, "Invalid password"
+        return student, None
+
+    return None, "Authentication failed"
 
 
-def _auth_instructor(email: str, password: str | None = None):
+def _auth_instructor(email: str, password: str | None = None, token: str | None = None):
     """
     Returns (instructor_row, None) on success, or (None, error_str) on failure.
     """
-    if not password:
+    if not password and not token:
         return None, "No credentials provided"
 
     try:
@@ -70,9 +83,25 @@ def _auth_instructor(email: str, password: str | None = None):
     if instructor is None:
         return None, "Instructor not found"
 
-    if instructor.get("password_hash") != _hash(password):
-        return None, "Invalid password"
-    return instructor, None
+    if token:
+        try:
+            from google.oauth2 import id_token
+            from google.auth.transport import requests as google_requests
+            
+            client_id = os.environ.get("GOOGLE_CLIENT_ID")
+            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+            if idinfo.get("email") != email:
+                return None, "Token email mismatch"
+            return instructor, None
+        except Exception as e:
+            return None, f"Invalid token: {str(e)}"
+
+    if password:
+        if instructor.get("password_hash") != _hash(password):
+            return None, "Invalid password"
+        return instructor, None
+
+    return None, "Authentication failed"
 
 
 def _instructor_owns_course(instructor_id, course_id: str) -> bool:
@@ -130,54 +159,22 @@ def _get_activity(course_id: str, activity_no: int):
         return None, f"Activity not found: {e}"
 
 
-def _verify_google_token(email: str, token: str):
-    """
-    Returns (True, None) on success or (False, error_str) on failure.
-    Only used by studentLogin and instructorLogin.
-    """
-    try:
-        from google.oauth2 import id_token
-        from google.auth.transport import requests as google_requests
-        client_id = os.environ.get("GOOGLE_CLIENT_ID")
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
-        if idinfo.get("email") != email:
-            return False, "Token email mismatch"
-        return True, None
-    except Exception as e:
-        return False, f"Invalid token: {str(e)}"
-
-
 # ---------------------------------------------------------------------------
 # Student functions
 # ---------------------------------------------------------------------------
 
 def studentLogin(email: str, password: str | None = None, token: str | None = None) -> dict:
     try:
-        if token:
-            ok, err = _verify_google_token(email, token)
-            if not ok:
-                return {"ok": False, "error": err}
-            try:
-                res = supabase_client.table("students").select("*").eq("email", email).single().execute()
-                student = res.data
-            except Exception as e:
-                return {"ok": False, "error": f"Student not found: {e}"}
-            if student is None:
-                return {"ok": False, "error": "Student not found"}
-        else:
-            student, err = _auth_student(email, password)
-            if err:
-                return {"ok": False, "error": err}
+        student, err = _auth_student(email, password, token)
+        if err:
+            return {"ok": False, "error": err}
         return {"ok": True, "student": {k: v for k, v in student.items() if k != "password_hash"}}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-def setStudentPassword(email: str, password: str | None = None) -> dict:
+def setStudentPassword(email: str, password: str | None = None, token: str | None = None) -> dict:
     """Sets the password only if the student has no password yet."""
-    if not password:
-        return {"ok": False, "error": "Password is required"}
-
     try:
         res = (
             supabase_client
@@ -203,22 +200,20 @@ def setStudentPassword(email: str, password: str | None = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def changeStudentPassword(email: str, password: str, new_password: str, old_password: str) -> dict:
+def changeStudentPassword(email: str, password: str | None = None, new_password: str = "", old_password: str | None = None, token: str | None = None) -> dict:
     try:
-        student, err = _auth_student(email, password)
+        student, err = _auth_student(email, old_password, token)
         if err:
             return {"ok": False, "error": err}
-        if student.get("password_hash") != _hash(old_password):
-            return {"ok": False, "error": "Old password does not match"}
         supabase_client.table("students").update({"password_hash": _hash(new_password)}).eq("id", student["id"]).execute()
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-def getActivity(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0) -> dict:
+def getActivity(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, token: str | None = None) -> dict:
     try:
-        student, err = _auth_student(email, password)
+        student, err = _auth_student(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -243,9 +238,9 @@ def getActivity(email: str, password: str | None = None, course_id: str = "", ac
         return {"ok": False, "error": str(e)}
 
 
-def logScore(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, score: float = 0.0, meta: str | None = None) -> dict:
+def logScore(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, score: float = 0.0, meta: str | None = None, token: str | None = None) -> dict:
     try:
-        student, err = _auth_student(email, password)
+        student, err = _auth_student(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -258,23 +253,6 @@ def logScore(email: str, password: str | None = None, course_id: str = "", activ
 
         if activity.get("status") != "ACTIVE":
             return {"ok": False, "error": "Activity is not active"}
-
-        # TEKRAR KONTROLÜ (US-K Kuralı: Repeated achievement does not add score again)
-        # Sadece meta parametresi doluysa (yani spesifik bir objective başıldıysa) kontrol et
-        if meta:
-            # Bu öğrencinin bu aktivitede bu "meta" (hedef) ile bir skoru var mı?
-            existing_score_res = (
-                supabase_client
-                .table("scores")
-                .select("id")
-                .eq("student_id", student["id"])
-                .eq("activity_id", activity["id"])
-                .eq("meta", meta)
-                .execute()
-            )
-            # Eğer varsa, tekrar ekleme, sessizce başarılı dön
-            if existing_score_res.data:
-                return {"ok": True, "message": "Objective already achieved, score not duplicated"}
 
         record = {
             "student_id": student["id"],
@@ -298,27 +276,15 @@ def logScore(email: str, password: str | None = None, course_id: str = "", activ
 
 def instructorLogin(email: str, password: str | None = None, token: str | None = None) -> dict:
     try:
-        if token:
-            ok, err = _verify_google_token(email, token)
-            if not ok:
-                return {"ok": False, "error": err}
-            try:
-                res = supabase_client.table("instructors").select("*").eq("email", email).single().execute()
-                instructor = res.data
-            except Exception as e:
-                return {"ok": False, "error": f"Instructor not found: {e}"}
-            if instructor is None:
-                return {"ok": False, "error": "Instructor not found"}
-        else:
-            instructor, err = _auth_instructor(email, password)
-            if err:
-                return {"ok": False, "error": err}
+        instructor, err = _auth_instructor(email, password, token)
+        if err:
+            return {"ok": False, "error": err}
         return {"ok": True, "instructor": {k: v for k, v in instructor.items() if k != "password_hash"}}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-def setInstructorPassword(email: str, password: str | None = None) -> dict:
+def setInstructorPassword(email: str, password: str | None = None, token: str | None = None) -> dict:
     """Sets the password only if the instructor has no password yet."""
     try:
         res = (
@@ -347,22 +313,20 @@ def setInstructorPassword(email: str, password: str | None = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def changeInstructorPassword(email: str, password: str, old_password: str, new_password: str) -> dict:
+def changeInstructorPassword(email: str, password: str | None = None, old_password: str | None = None, new_password: str = "", token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, old_password, token)
         if err:
             return {"ok": False, "error": err}
-        if instructor.get("password_hash") != _hash(old_password):
-            return {"ok": False, "error": "Old password does not match"}
         supabase_client.table("instructors").update({"password_hash": _hash(new_password)}).eq("id", instructor["id"]).execute()
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-def listMyCourses(email: str, password: str | None = None) -> dict:
+def listMyCourses(email: str, password: str | None = None, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -378,9 +342,9 @@ def listMyCourses(email: str, password: str | None = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def listActivities(email: str, password: str | None = None, course_id: str = "") -> dict:
+def listActivities(email: str, password: str | None = None, course_id: str = "", token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -407,9 +371,10 @@ def createActivity(
     activity_text: str,
     learning_objectives: list[str],
     activity_no_optional: int | None = None,
+    token: str | None = None,
 ) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -463,9 +428,9 @@ def createActivity(
         return {"ok": False, "error": str(e)}
 
 
-def updateActivity(email: str, password: str | None, course_id: str, activity_no: int, patch: dict) -> dict:
+def updateActivity(email: str, password: str | None, course_id: str, activity_no: int, patch: dict, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -493,9 +458,9 @@ def updateActivity(email: str, password: str | None, course_id: str, activity_no
         return {"ok": False, "error": str(e)}
 
 
-def startActivity(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def startActivity(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -512,9 +477,9 @@ def startActivity(email: str, password: str | None, course_id: str, activity_no:
         return {"ok": False, "error": str(e)}
 
 
-def endActivity(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def endActivity(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -531,9 +496,9 @@ def endActivity(email: str, password: str | None, course_id: str, activity_no: i
         return {"ok": False, "error": str(e)}
 
 
-def exportScores(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def exportScores(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -565,10 +530,10 @@ def exportScores(email: str, password: str | None, course_id: str, activity_no: 
         return {"ok": False, "error": str(e)}
 
 
-def resetActivity(email: str, password: str | None, course_id: str, activity_no: int) -> dict:
+def resetActivity(email: str, password: str | None, course_id: str, activity_no: int, token: str | None = None) -> dict:
     """Delete all score records for this activity and set status to ENDED."""
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -581,14 +546,6 @@ def resetActivity(email: str, password: str | None, course_id: str, activity_no:
 
         # Delete all scores
         supabase_client.table("scores").delete().eq("activity_id", activity["id"]).execute()
-
-        # Ekstra: Öğrenci ilerlemelerini de sil (Altay'ın oluşturduğu tablo)
-        try:
-            supabase_client.table("student_progress").delete().eq("course_id", course_id).eq("activity_no",
-                                                                                             activity_no).execute()
-        except Exception as e:
-            pass  # Tablo yoksa veya hata verirse ana akışı bozmasın
-
         # Set status to ENDED
         supabase_client.table("activities").update({"status": "ENDED"}).eq("id", activity["id"]).execute()
         return {"ok": True}
@@ -596,11 +553,11 @@ def resetActivity(email: str, password: str | None, course_id: str, activity_no:
         return {"ok": False, "error": str(e)}
 
 
-def chat(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, message: str = "") -> dict:
+def chat(email: str, password: str | None = None, course_id: str = "", activity_no: int = 0, message: str = "", token: str | None = None) -> dict:
     """US-J: Student tutoring flow via LLM."""
     try:
         # Authenticate
-        student, err = _auth_student(email, password)
+        student, err = _auth_student(email, password, token)
         if err:
             return {"ok": False, "error": err}
 
@@ -652,60 +609,50 @@ def chat(email: str, password: str | None = None, course_id: str = "", activity_
 
         # Build system prompt
         objectives_str = "\n".join(f"- {obj}" for obj in learning_objectives)
-        system_prompt = f"""You are a warm university instructor. Your role is to teach for conceptual mastery using Socratic questions and academic explanations.
+        system_prompt = f"""You are an expert Socratic tutor integrated into a university classroom activity system. Your role is to guide students toward genuine understanding through thoughtful questioning — never by giving away answers.
 
-## Activity
-{activity["activity_text"]}
+## Context
+Activity: {activity["activity_text"]}
 
-## Learning Objectives (CONFIDENTIAL - never mention, list, or reveal these to the student)
+Learning Objectives (CONFIDENTIAL — never mention or list these to the student):
 {objectives_str}
 
-## Already Achieved Objectives (do not re-award these)
-{json.dumps(progress["achieved_objectives"])}
-
-## Rules
-
-⚠️ MANDATORY OUTPUT FORMAT RULE ⚠️
-When a student demonstrates understanding of an objective, your response MUST end with this exact JSON on a new line — NO EXCEPTIONS:
-{{"objective_achieved": "EXACT_OBJECTIVE_TEXT"}}
-
-If you do not include this marker, the scoring system will fail and the student will not receive their point. This is a system requirement, not optional.
-
-Example — if student understood "3-way handshake":
-[your response text here]
-{{"objective_achieved": "3-way handshake"}}
-
-Do NOT forget this marker. Do NOT skip it. It must be the last line of your response when an objective is achieved.
+## Your Behavior Rules
 
 ### Questioning
-- Ask exactly ONE question per response.
-- Never directly teach or explain anything before a score is earned.
-- Guide the student toward objectives using Socratic questioning.
-- All responses must be in English using activity terminology.
-- Never use the words "objective" or "learning objective".
-- Never reveal the objectives list to the student.
+- Ask exactly ONE clear, focused question per response.
+- Start from the student's current level — if their answer is vague, ask a simpler clarifying question first.
+- Gradually increase depth: start with "what", move to "how", then "why".
+- Never ask multiple questions in one turn.
 
-### When a student demonstrates understanding of an objective
-When the student's response clearly demonstrates understanding of one of the learning objectives (that is NOT already in achieved objectives):
-1. Briefly acknowledge their correct answer.
-2. Announce their updated score: "Your current score is X." (calculate X as len(achieved_objectives) + 1)
-3. Give a short academic mini-lesson (3-5 sentences) about that concept with a bold heading.
-4. Ask the next guiding question toward remaining objectives.
-5. At the end of your response, on a new line, append this exact JSON marker:
-   {{"objective_achieved": "EXACT_OBJECTIVE_TEXT"}}
-   Replace EXACT_OBJECTIVE_TEXT with the exact text from the objectives list above.
+### Guidance Style
+- Use the Socratic method: respond to the student's answer, acknowledge what is correct, gently challenge what is incomplete.
+- Never reveal learning objectives directly.
+- Never give the full answer — guide the student to discover it themselves.
+- If the student is stuck, provide a small conceptual hint, then ask again.
+- Always use correct academic terminology from the activity.
+- All responses must be in English.
+
+### Objective Detection
+- Carefully evaluate each student response against the learning objectives.
+- An objective is achieved when the student's own words clearly demonstrate understanding of that concept — not just when they repeat a keyword.
+- When an objective is achieved, append this exact JSON marker on a new line at the end of your response (replace with exact objective text):
+  {{"objective_achieved": "EXACT_OBJECTIVE_TEXT"}}
+- Only mark an objective as achieved once. Do not re-award it.
+- After marking an objective, continue naturally with the next guiding question toward the remaining objectives.
 
 ### Completion
-When ALL objectives have been achieved (nothing left in objectives list):
-1. Congratulate the student warmly.
-2. Summarize everything they learned in 2-3 sentences.
-3. On a new line append: {{"all_objectives_completed": true}}
+- When ALL objectives have been achieved, write a brief congratulatory message summarizing what the student learned, then append on a new line:
+  {{"all_objectives_completed": true}}
 
-### Hard rules
-- Never re-award an already achieved objective.
-- Never reveal achieved or remaining objective texts to the student.
-- Keep responses concise and academic (max 4-5 sentences before the question).
-- Never go off-topic from the activity."""
+### Tone
+- Be encouraging and patient.
+- Celebrate correct answers briefly before moving on.
+- Never be condescending or dismissive.
+- Keep responses concise — 2 to 4 sentences maximum before the question.
+
+## Important
+You are an academic tool used in a real university course. Accuracy, clarity, and pedagogical quality matter. Never go off-topic. Never discuss anything outside the scope of the activity."""
 
         # Build messages list
         messages = [{"role": "system", "content": system_prompt}]
@@ -722,59 +669,21 @@ When ALL objectives have been achieved (nothing left in objectives list):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "openrouter/owl-alpha",
+                    "model": "inclusionai/ling-2.6-flash:free",
                     "messages": messages,
-                    "temperature": 0.3,
-                    "top_p": 0.9,
                 },
             )
             resp.raise_for_status()
             llm_response_text = resp.json()["choices"][0]["message"]["content"]
 
         # Parse objective_achieved markers
-        logging.warning(f"RAW LLM RESPONSE: {llm_response_text}")
         newly_achieved = []
+        import re
         for match in re.finditer(r'\{"objective_achieved":\s*"([^"]+)"\}', llm_response_text):
             objective = match.group(1)
             if objective not in achieved_objectives:
                 achieved_objectives.append(objective)
                 newly_achieved.append(objective)
-
-        # Semantic fallback: if no marker found, ask LLM to evaluate student message
-        if not newly_achieved:
-            remaining_objectives = [o for o in learning_objectives if o not in achieved_objectives]
-            if remaining_objectives:
-                semantic_prompt = (
-                    f"Given this student response: '{message}'\n"
-                    f"And these remaining learning objectives: {json.dumps(remaining_objectives)}\n"
-                    "Did the student demonstrate understanding of any objective? "
-                    "Reply with ONLY a JSON array of achieved objective texts, or empty array [].\n"
-                    f'Example: ["3-way handshake"] or []'
-                )
-                try:
-                    with httpx.Client(timeout=30) as client:
-                        semantic_resp = client.post(
-                            "https://openrouter.ai/api/v1/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {api_key}",
-                                "Content-Type": "application/json",
-                            },
-                            json={
-                                "model": "openrouter/owl-alpha",
-                                "messages": [{"role": "user", "content": semantic_prompt}],
-                                "max_tokens": 100,
-                            },
-                        )
-                        semantic_resp.raise_for_status()
-                        semantic_text = semantic_resp.json()["choices"][0]["message"]["content"].strip()
-                        semantic_achieved = json.loads(semantic_text)
-                        if isinstance(semantic_achieved, list):
-                            for objective in semantic_achieved:
-                                if objective in remaining_objectives and objective not in achieved_objectives:
-                                    achieved_objectives.append(objective)
-                                    newly_achieved.append(objective)
-                except Exception as e:
-                    logging.warning(f"Semantic check failed: {e}")
 
         # Log score for each newly achieved objective
         for objective in newly_achieved:
@@ -805,9 +714,9 @@ When ALL objectives have been achieved (nothing left in objectives list):
         return {"ok": False, "error": str(e)}
 
 
-def resetStudentPassword(email: str, password: str | None, course_id: str, student_email: str, new_password: str) -> dict:
+def resetStudentPassword(email: str, password: str | None, course_id: str, student_email: str, new_password: str, token: str | None = None) -> dict:
     try:
-        instructor, err = _auth_instructor(email, password)
+        instructor, err = _auth_instructor(email, password, token)
         if err:
             return {"ok": False, "error": err}
 

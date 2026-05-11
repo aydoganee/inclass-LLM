@@ -1,0 +1,17 @@
+GitHub Repository URL : https://github.com/aydoganee/inclass-LLM
+Default Branch        : main
+Sprint 1 Tag          : sprint-1
+Sprint 2 Tag          : sprint-2
+Team ID               : G12
+
+Instructor Access
+-----------------
+bekmezcii@mef.edu.tr  — read access granted
+duranf@mef.edu.tr     — read access granted
+
+Branch Naming Convention
+------------------------
+Each Sprint 2 task has its own branch:
+  US-T3  — Export Scores: Validate CSV format and content
+  US-T6  — Demo Preparation: Seed Supabase with demo data
+  US-T7  — Submission: Prepare ZIP package with all evidence files

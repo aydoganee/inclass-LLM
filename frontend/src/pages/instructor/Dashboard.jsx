@@ -379,11 +379,100 @@ function ResetStudentPasswordModal({ credentials, courses, onClose, toast }) {
 }
 
 // ---------------------------------------------------------------------------
+// Manual Grade Modal
+// ---------------------------------------------------------------------------
+
+function ManualGradeModal({ activity, courseId, credentials, onClose, toast }) {
+  const [studentEmail, setStudentEmail] = useState('')
+  const [score, setScore] = useState(1)
+  const [meta, setMeta] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const res = await axios.post(`${API}/instructor/manual-grade`, {
+        email: credentials.email,
+        password: credentials.password,
+        course_id: courseId,
+        activity_no: activity.activity_no,
+        student_email: studentEmail.trim(),
+        score: Number(score),
+        meta: meta.trim() || null,
+      })
+      if (res.data?.ok === false) {
+        toast(res.data.error || res.data.message || 'Failed to submit grade.', 'error')
+        return
+      }
+      toast('Grade submitted successfully.')
+      onClose()
+    } catch (err) {
+      toast(err.response?.data?.error || err.response?.data?.detail || 'Failed to submit grade.', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal title={`Manual Grade — Activity #${activity.activity_no}`} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1.5">Student Email</label>
+          <input
+            type="email"
+            value={studentEmail}
+            onChange={e => setStudentEmail(e.target.value)}
+            required
+            placeholder="student@university.edu"
+            className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm transition-colors"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1.5">Score</label>
+          <input
+            type="number"
+            value={score}
+            onChange={e => setScore(e.target.value)}
+            min={0}
+            step={0.1}
+            required
+            className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm transition-colors"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1.5">Note <span className="text-gray-600">(optional)</span></label>
+          <input
+            type="text"
+            value={meta}
+            onChange={e => setMeta(e.target.value)}
+            placeholder="Reason for manual grade"
+            className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm transition-colors"
+          />
+        </div>
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
+          >
+            {loading ? 'Submitting…' : 'Submit Grade'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Scores Modal
 // ---------------------------------------------------------------------------
 
 function parseCSV(text) {
-  const lines = text.trim().split('\n').filter(Boolean)
+  const lines = text.trim().split(/\r?\n/).filter(Boolean)
   if (lines.length === 0) return { headers: [], rows: [] }
   const parse = line => {
     const result = []
@@ -414,14 +503,15 @@ function ScoresModal({ activity, courseId, credentials, onClose, toast }) {
       try {
         const res = await axios.post(
           `${API}/instructor/export-scores`,
-          { email: credentials.email, password: credentials.password, course_id: courseId, activity_no: activity.activity_no },
-          { responseType: 'blob' }
+          { email: credentials.email, password: credentials.password, course_id: courseId, activity_no: activity.activity_no }
         )
         if (cancelled) return
-        const blob = res.data
-        setCsvBlob(blob)
-        const text = await blob.text()
-        setParsed(parseCSV(text))
+        const csvText = res.data?.csv ?? ''
+        if (csvText) {
+          const blob = new Blob([csvText], { type: 'text/csv' })
+          setCsvBlob(blob)
+        }
+        setParsed(parseCSV(csvText))
       } catch (err) {
         if (!cancelled) toast('Failed to load scores.', 'error')
       } finally {
@@ -490,7 +580,7 @@ function ScoresModal({ activity, courseId, credentials, onClose, toast }) {
 
       <div className="flex items-center justify-between mt-5 pt-4 border-t border-gray-800">
         <span className="text-xs text-gray-600">
-          {parsed.rows.length} student{parsed.rows.length !== 1 ? 's' : ''}
+          {parsed.rows.length} score record{parsed.rows.length !== 1 ? 's' : ''}
         </span>
         <div className="flex gap-3">
           <button
@@ -652,6 +742,7 @@ function ActivityCard({ activity, courseId, credentials, onRefresh, toast }) {
   const [loading, setLoading] = useState(null)
   const [showScores, setShowScores] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [showManualGrade, setShowManualGrade] = useState(false)
 
   const act = async (endpoint, label) => {
     setLoading(label)
@@ -757,6 +848,17 @@ function ActivityCard({ activity, courseId, credentials, onRefresh, toast }) {
                 }
               />
               <ActionButton
+                label="Manual Grade"
+                loading={false}
+                onClick={() => setShowManualGrade(true)}
+                color="gray"
+                icon={
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                  </svg>
+                }
+              />
+              <ActionButton
                 label="Restart"
                 loading={loading === 'Restart'}
                 onClick={restart}
@@ -784,6 +886,16 @@ function ActivityCard({ activity, courseId, credentials, onRefresh, toast }) {
           courseId={courseId}
           credentials={credentials}
           onClose={() => setShowScores(false)}
+          toast={toast}
+        />
+      )}
+
+      {showManualGrade && (
+        <ManualGradeModal
+          activity={activity}
+          courseId={courseId}
+          credentials={credentials}
+          onClose={() => setShowManualGrade(false)}
           toast={toast}
         />
       )}
@@ -840,6 +952,7 @@ export default function InstructorDashboard() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [showResetPw, setShowResetPw] = useState(false)
+  const [showManualGrade, setShowManualGrade] = useState(null) // activity object
 
   // Auth guard
   useEffect(() => {

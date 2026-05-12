@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import traceback
 import httpx
 from typing import Optional
 from app.database import supabase_client
@@ -23,11 +24,8 @@ def _hash(password: str) -> str:
 def _auth_student(email: str, password: str | None = None):
     """
     Returns (student_row, None) on success, or (None, error_str) on failure.
-    Looks up the student by email and validates the hashed password.
+    If the student has no password_hash (Google-only account), password check is skipped.
     """
-    if not password:
-        return None, "No credentials provided"
-
     try:
         res = (
             supabase_client
@@ -44,6 +42,12 @@ def _auth_student(email: str, password: str | None = None):
     if student is None:
         return None, "Student not found"
 
+    if student.get("password_hash") is None:
+        return student, None
+
+    if not password:
+        return None, "No credentials provided"
+
     if student.get("password_hash") != _hash(password):
         return None, "Invalid password"
     return student, None
@@ -52,10 +56,8 @@ def _auth_student(email: str, password: str | None = None):
 def _auth_instructor(email: str, password: str | None = None):
     """
     Returns (instructor_row, None) on success, or (None, error_str) on failure.
+    If the instructor has no password_hash (Google-only account), password check is skipped.
     """
-    if not password:
-        return None, "No credentials provided"
-
     try:
         res = (
             supabase_client
@@ -71,6 +73,12 @@ def _auth_instructor(email: str, password: str | None = None):
 
     if instructor is None:
         return None, "Instructor not found"
+
+    if instructor.get("password_hash") is None:
+        return instructor, None
+
+    if not password:
+        return None, "No credentials provided"
 
     if instructor.get("password_hash") != _hash(password):
         return None, "Invalid password"
@@ -132,21 +140,26 @@ def _get_activity(course_id: str, activity_no: int):
         return None, f"Activity not found: {e}"
 
 
-def _verify_google_token(email: str, token: str):
+def _extract_google_email(token: str):
     """
-    Returns (True, None) on success or (False, error_str) on failure.
-    Only used by studentLogin and instructorLogin.
+    Verifies the Google ID token and returns (email, None) on success
+    or (None, error_str) on failure.
     """
     try:
         from google.oauth2 import id_token
         from google.auth.transport import requests as google_requests
         client_id = os.environ.get("GOOGLE_CLIENT_ID")
+        print(f"[Google] Verifying token, GOOGLE_CLIENT_ID set: {bool(client_id)}")
         idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
-        if idinfo.get("email") != email:
-            return False, "Token email mismatch"
-        return True, None
+        email = idinfo.get("email")
+        if not email:
+            return None, "No email in token"
+        print(f"Google email: {email}")
+        return email, None
     except Exception as e:
-        return False, f"Invalid token: {str(e)}"
+        print(f"[Google] Token verification error: {e}")
+        traceback.print_exc()
+        return None, f"Invalid token: {str(e)}"
 
 
 # ---------------------------------------------------------------------------
@@ -156,21 +169,28 @@ def _verify_google_token(email: str, token: str):
 def studentLogin(email: str, password: str, token: str | None = None) -> dict:
     try:
         if token:
-            ok, err = _verify_google_token(email, token)
-            if not ok:
-                return {"ok": False, "error": err}
             try:
-                res = supabase_client.table("students").select("*").eq("email", email).single().execute()
+                google_email, err = _extract_google_email(token)
+                if err:
+                    print(f"Google auth error: {err}")
+                    return {"ok": False, "error": err}
+                print(f"[studentLogin] Looking up student with email: {google_email}")
+                res = supabase_client.table("students").select("*").eq("email", google_email).single().execute()
                 student = res.data
+                print(f"[studentLogin] Supabase result: {student}")
+                if student is None:
+                    return {"ok": False, "error": "Student not found"}
             except Exception as e:
-                return {"ok": False, "error": f"Student not found: {e}"}
-            if student is None:
-                return {"ok": False, "error": "Student not found"}
+                print(f"Google auth error: {e}")
+                traceback.print_exc()
+                return {"ok": False, "error": str(e)}
         else:
             student, err = _auth_student(email, password)
             if err:
                 return {"ok": False, "error": err}
-        return {"ok": True, "student": {k: v for k, v in student.items() if k != "password_hash"}}
+        student_data = {k: v for k, v in student.items() if k != "password_hash"}
+        print(f"[studentLogin] Login successful for: {student_data.get('email')}")
+        return {"ok": True, "email": student_data.get("email"), "student": student_data}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -264,26 +284,26 @@ def logScore(email: str, password: str, course_id: str = "", activity_no: int = 
         # TEKRAR KONTROLÜ (US-K Kuralı: Repeated achievement does not add score again)
         # Sadece meta parametresi doluysa (yani spesifik bir objective başıldıysa) kontrol et
         if meta:
-            # Bu öğrencinin bu aktivitede bu "meta" (hedef) ile bir skoru var mı?
             existing_score_res = (
                 supabase_client
                 .table("scores")
                 .select("id")
                 .eq("student_id", student["id"])
-                .eq("activity_id", activity["id"])
+                .eq("course_id", course_id)
+                .eq("activity_no", activity_no)
                 .eq("meta", meta)
                 .execute()
             )
-            # Eğer varsa, tekrar ekleme, sessizce başarılı dön
             if existing_score_res.data:
                 return {"ok": True, "message": "Objective already achieved, score not duplicated"}
 
+        import datetime
         record = {
             "student_id": student["id"],
-            "activity_id": activity["id"],
             "course_id": course_id,
             "activity_no": activity_no,
             "score": score,
+            "logged_at": datetime.datetime.utcnow().isoformat(),
         }
         if meta is not None:
             record["meta"] = meta
@@ -301,11 +321,11 @@ def logScore(email: str, password: str, course_id: str = "", activity_no: int = 
 def instructorLogin(email: str, password: str, token: str | None = None) -> dict:
     try:
         if token:
-            ok, err = _verify_google_token(email, token)
-            if not ok:
+            google_email, err = _extract_google_email(token)
+            if err:
                 return {"ok": False, "error": err}
             try:
-                res = supabase_client.table("instructors").select("*").eq("email", email).single().execute()
+                res = supabase_client.table("instructors").select("*").eq("email", google_email).single().execute()
                 instructor = res.data
             except Exception as e:
                 return {"ok": False, "error": f"Instructor not found: {e}"}
@@ -315,7 +335,9 @@ def instructorLogin(email: str, password: str, token: str | None = None) -> dict
             instructor, err = _auth_instructor(email, password)
             if err:
                 return {"ok": False, "error": err}
-        return {"ok": True, "instructor": {k: v for k, v in instructor.items() if k != "password_hash"}}
+        instructor_data = {k: v for k, v in instructor.items() if k != "password_hash"}
+        print(f"[instructorLogin] Login successful for: {instructor_data.get('email')}")
+        return {"ok": True, "email": instructor_data.get("email"), "instructor": instructor_data}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -552,7 +574,8 @@ def exportScores(email: str, password: str, course_id: str, activity_no: int) ->
             supabase_client
             .table("scores")
             .select("*, students(email)")
-            .eq("activity_id", activity["id"])
+            .eq("course_id", course_id)
+            .eq("activity_no", activity_no)
             .execute()
         )
         rows = res.data or []
@@ -584,7 +607,7 @@ def resetActivity(email: str, password: str, course_id: str, activity_no: int) -
             return {"ok": False, "error": err}
 
         # Delete all scores
-        supabase_client.table("scores").delete().eq("activity_id", activity["id"]).execute()
+        supabase_client.table("scores").delete().eq("course_id", course_id).eq("activity_no", activity_no).execute()
 
         # Ekstra: Öğrenci ilerlemelerini de sil (Altay'ın oluşturduğu tablo)
         try:
@@ -705,6 +728,13 @@ When ALL objectives have been achieved (nothing left in objectives list):
 2. Summarize everything they learned in 2-3 sentences.
 3. On a new line append: {{"all_objectives_completed": true}}
 
+### First Message Rule
+When this is the first message (conversation history is empty or only has the student's first message):
+- Start your response by presenting the activity scenario to the student.
+- Say something like: "Here's today's activity:" and then show the activity_text exactly.
+- Then ask your first guiding question.
+- Do NOT skip showing the activity text on the first response.
+
 ### Hard rules
 - Never re-award an already achieved objective.
 - Never reveal achieved or remaining objective texts to the student.
@@ -716,17 +746,17 @@ When ALL objectives have been achieved (nothing left in objectives list):
         messages.extend(conversation_history)
         messages.append({"role": "user", "content": message})
 
-        # Call OpenRouter
-        api_key = os.environ["OPENROUTER_API_KEY"]
+        # Call OpenAI
+        api_key = os.environ["OPENAI_API_KEY"]
         with httpx.Client(timeout=60) as client:
             resp = client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
+                "https://api.openai.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "openrouter/owl-alpha",
+                    "model": "gpt-4o-mini",
                     "messages": messages,
                     "temperature": 0.3,
                     "top_p": 0.9,
@@ -743,28 +773,41 @@ When ALL objectives have been achieved (nothing left in objectives list):
             if objective not in achieved_objectives:
                 achieved_objectives.append(objective)
                 newly_achieved.append(objective)
+        print(f"[chat] newly_achieved from regex: {newly_achieved}")
 
         # Semantic fallback: if no marker found, ask LLM to evaluate student message
         if not newly_achieved:
             remaining_objectives = [o for o in learning_objectives if o not in achieved_objectives]
             if remaining_objectives:
-                semantic_prompt = (
-                    f"Given this student response: '{message}'\n"
-                    f"And these remaining learning objectives: {json.dumps(remaining_objectives)}\n"
-                    "Did the student demonstrate understanding of any objective? "
-                    "Reply with ONLY a JSON array of achieved objective texts, or empty array [].\n"
-                    f'Example: ["3-way handshake"] or []'
-                )
+                semantic_prompt = f"""You are evaluating whether a student demonstrated understanding of learning objectives.
+
+Student's message: "{message}"
+
+Learning objectives to check:
+{json.dumps(remaining_objectives)}
+
+Instructions:
+- Be GENEROUS in your evaluation
+- If the student's answer shows even partial understanding of the core concept, mark it as achieved
+- Do not require exact wording - synonyms and paraphrases count
+- Key concepts to look for:
+  * "active recall/retrieval", "memory", "explaining from memory" → first objective
+  * "feedback", "checking mistakes", "correcting errors", "misconceptions" → second objective
+- Return ONLY a JSON array of achieved objective texts
+- Return [] if the student's answer is completely off-topic or irrelevant
+
+Example output: ["Explain that active retrieval practice improves long-term learning more than passive rereading."]
+"""
                 try:
                     with httpx.Client(timeout=30) as client:
                         semantic_resp = client.post(
-                            "https://openrouter.ai/api/v1/chat/completions",
+                            "https://api.openai.com/v1/chat/completions",
                             headers={
                                 "Authorization": f"Bearer {api_key}",
                                 "Content-Type": "application/json",
                             },
                             json={
-                                "model": "openrouter/owl-alpha",
+                                "model": "gpt-4o-mini",
                                 "messages": [{"role": "user", "content": semantic_prompt}],
                                 "max_tokens": 100,
                             },
@@ -780,12 +823,22 @@ When ALL objectives have been achieved (nothing left in objectives list):
                 except Exception as e:
                     logging.warning(f"Semantic check failed: {e}")
 
+        print(f"[chat] newly_achieved after semantic fallback: {newly_achieved}")
         # Log score for each newly achieved objective
         for objective in newly_achieved:
-            logScore(email, password, course_id, activity_no, score=1.0, meta=f"Objective achieved: {objective}")
+            print(f"[chat] Calling logScore for objective: {objective}")
+            result = logScore(email, password, course_id, activity_no, score=1.0, meta=f"Objective achieved: {objective}")
+            print(f"[chat] logScore result: {result}")
 
-        # Check completion
+        # Check completion and auto-complete any skipped objectives
         is_completed = bool(re.search(r'\{"all_objectives_completed":\s*true\}', llm_response_text))
+        if is_completed:
+            remaining = [o for o in learning_objectives if o not in achieved_objectives]
+            for obj in remaining:
+                print(f"[chat] Auto-completing remaining objective: {obj}")
+                result = logScore(email, password, course_id, activity_no, score=1.0, meta=f"Auto-completed: {obj}")
+                print(f"[chat] Auto-complete logScore result: {result}")
+                achieved_objectives.append(obj)
 
         # Update conversation history
         conversation_history.append({"role": "user", "content": message})
@@ -840,6 +893,42 @@ def resetStudentPassword(email: str, password: str, course_id: str, student_emai
             return {"ok": False, "error": "Student not found in this course"}
 
         supabase_client.table("students").update({"password_hash": _hash(new_password)}).eq("id", student_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def gradeStudent(email: str, password: str, course_id: str, activity_no: int, student_email: str, score: float, meta: str | None = None) -> dict:
+    """Instructor manually grades a student for an activity."""
+    try:
+        instructor, err = _auth_instructor(email, password)
+        if err:
+            return {"ok": False, "error": err}
+
+        if not _instructor_owns_course(instructor["id"], course_id):
+            return {"ok": False, "error": "Course not found or access denied"}
+
+        try:
+            student_res = supabase_client.table("students").select("id").eq("email", student_email).single().execute()
+            student = student_res.data
+        except Exception as e:
+            return {"ok": False, "error": f"Student not found: {e}"}
+
+        if student is None:
+            return {"ok": False, "error": "Student not found"}
+
+        import datetime
+        record = {
+            "student_id": student["id"],
+            "course_id": course_id,
+            "activity_no": activity_no,
+            "score": score,
+            "logged_at": datetime.datetime.utcnow().isoformat(),
+        }
+        if meta is not None:
+            record["meta"] = meta
+
+        supabase_client.table("scores").insert(record).execute()
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}

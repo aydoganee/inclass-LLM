@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import axios from 'axios'
+import { GoogleLogin } from '@react-oauth/google'
 import { useAuth } from '../../context/AuthContext'
 
 export default function InstructorLogin() {
@@ -28,6 +29,27 @@ export default function InstructorLogin() {
       setError(err.response?.data?.message || err.response?.data?.detail || 'Invalid email or password.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async (credential) => {
+    setError('')
+    try {
+      const res = await axios.post('http://localhost:8000/instructor/login', {
+        email: '',
+        password: '',
+        token: credential,
+      })
+      if (res.data?.ok === false) {
+        setError(res.data?.message || 'Google account not registered in the system.')
+        return
+      }
+      const userEmail = res.data?.email ?? res.data?.instructor?.email ?? res.data?.data?.email ?? ''
+      console.log('[Google login] stored email:', userEmail)
+      loginInstructor(userEmail, '')
+      navigate('/instructor/dashboard')
+    } catch {
+      setError('Google sign-in failed.')
     }
   }
 
@@ -60,6 +82,25 @@ export default function InstructorLogin() {
               <h1 className="text-xl font-semibold text-white">Instructor Sign In</h1>
               <p className="text-sm text-gray-500">Access your Socratic AI dashboard</p>
             </div>
+          </div>
+
+          {/* Google Sign-In */}
+          <div className="mb-6">
+            <GoogleLogin
+              onSuccess={(credentialResponse) => handleGoogleLogin(credentialResponse.credential)}
+              onError={() => setError('Google sign-in failed.')}
+              width="368"
+              theme="filled_black"
+              text="continue_with"
+              shape="rectangular"
+            />
+          </div>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex-1 h-px bg-gray-800" />
+            <span className="text-xs text-gray-600">or</span>
+            <div className="flex-1 h-px bg-gray-800" />
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">

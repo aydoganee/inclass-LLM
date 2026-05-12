@@ -302,7 +302,11 @@ export default function StudentDashboard() {
       console.log(`[click status] ${key}:`, res.data)
       status = parseStatus(res.data)
       setStatuses(prev => ({ ...prev, [key]: status }))
-    } catch {
+      if (res.data?.ok === false) {
+        push(res.data.error || res.data.message || res.data.detail || 'Activity not available.', 'error')
+        return
+      }
+    } catch (err) {
       status = statuses[key] ?? 'UNKNOWN'
     }
     if (status !== 'ACTIVE') return
@@ -448,11 +452,24 @@ export default function StudentDashboard() {
         </aside>
 
         {/* ── Chat panel ───────────────────────────────────────── */}
-        <main className="ml-[260px] flex-1 flex flex-col h-[calc(100vh-3.5rem)] overflow-hidden">
+        <main className="ml-[260px] flex-1 flex flex-col h-[calc(100vh-3.5rem)] overflow-hidden relative">
+          {/* Grid background */}
+          <div
+            className="absolute inset-0 z-0 pointer-events-none"
+            style={{
+              background: '#020617',
+              backgroundImage: `
+                linear-gradient(to right, rgba(71,85,105,0.3) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(71,85,105,0.3) 1px, transparent 1px),
+                radial-gradient(circle at 50% 50%, rgba(139,92,246,0.15) 0%, transparent 70%)
+              `,
+              backgroundSize: '32px 32px, 32px 32px, 100% 100%',
+            }}
+          />
 
           {!activeActivity ? (
             /* Empty state */
-            <div className="flex-1 flex items-center justify-center">
+            <div className="relative z-10 flex-1 flex items-center justify-center">
               <div className="text-center">
                 <div className="w-14 h-14 rounded-2xl bg-gray-800/60 flex items-center justify-center mx-auto mb-4">
                   <svg className="w-7 h-7 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -463,7 +480,7 @@ export default function StudentDashboard() {
               </div>
             </div>
           ) : (
-            <>
+            <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
               {/* Activity strip */}
               <div className="px-6 py-2.5 flex items-center justify-between">
                 <p className="text-xs text-gray-500 font-medium">
@@ -539,7 +556,7 @@ export default function StudentDashboard() {
               {/* ── Input ──────────────────────────────────────── */}
               <div className="px-6 pb-8 pt-3">
                 <div className="max-w-3xl mx-auto">
-                  <div className="relative flex items-end bg-gray-900 rounded-2xl border border-gray-700/50 focus-within:border-gray-600/80 transition-colors duration-150">
+                  <div className="relative flex items-end bg-gray-900/80 backdrop-blur-sm rounded-2xl border border-gray-700/50 focus-within:border-gray-600/80 transition-colors duration-150">
                     <textarea
                       ref={textareaRef}
                       value={chatInput}
@@ -556,22 +573,24 @@ export default function StudentDashboard() {
                       onBlur={() => { if (!chatInput.trim()) setInputFocused(false) }}
                       className={`flex-1 bg-transparent px-4 py-3.5 text-sm text-gray-100 placeholder-gray-600 resize-none focus:outline-none disabled:opacity-40 overflow-y-auto transition-all duration-200 ${inputFocused || chatInput.trim() ? 'h-[150px]' : 'h-[48px]'}`}
                     />
-                    {chatInput.trim() && !completed && (
-                      <button
-                        onClick={() => handleSend()}
-                        disabled={chatLoading}
-                        className="m-2.5 w-8 h-8 flex-shrink-0 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors"
-                      >
-                        <ArrowUp className="w-4 h-4 text-white" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleSend()}
+                      disabled={!chatInput.trim() || chatLoading || completed}
+                      className={`m-2.5 w-8 h-8 flex-shrink-0 rounded-xl flex items-center justify-center transition-all duration-200 flex-shrink-0
+                        ${chatInput.trim() && !completed
+                          ? 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'
+                          : 'bg-gray-700 cursor-not-allowed'
+                        }`}
+                    >
+                      <ArrowUp className={`w-4 h-4 transition-colors duration-200 ${chatInput.trim() && !completed ? 'text-white' : 'text-gray-500'}`} />
+                    </button>
                   </div>
                   <p className="text-center text-[11px] text-gray-700 mt-2">
                     Press Enter to send · Shift+Enter for new line
                   </p>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </main>
       </div>

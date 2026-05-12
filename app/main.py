@@ -34,6 +34,7 @@ from app.services import (
     exportScores,
     resetActivity,
     resetStudentPassword,
+    gradeStudent,
 )
 
 app = FastAPI()
@@ -138,6 +139,15 @@ class ResetStudentPasswordBody(BaseModel):
     course_id: str
     student_email: str
     new_password: str
+
+class ManualGradeBody(BaseModel):
+    email: str
+    password: str
+    course_id: str
+    activity_no: int
+    student_email: str
+    score: float
+    meta: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -248,4 +258,17 @@ def route_reset_student_password(body: ResetStudentPasswordBody):
         body.course_id,
         body.student_email,
         body.new_password,
+    )
+
+
+@app.post("/instructor/manual-grade")
+def route_manual_grade(body: ManualGradeBody):
+    return gradeStudent(
+        body.email,
+        body.password,
+        body.course_id,
+        body.activity_no,
+        body.student_email,
+        body.score,
+        body.meta,
     )

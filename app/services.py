@@ -303,7 +303,7 @@ def logScore(email: str, password: str, course_id: str = "", activity_no: int = 
             "course_id": course_id,
             "activity_no": activity_no,
             "score": score,
-            "logged_at": datetime.datetime.utcnow().isoformat(),
+            "logged_at": datetime.datetime.now(datetime.UTC).isoformat(),
         }
         if meta is not None:
             record["meta"] = meta

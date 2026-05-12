@@ -371,7 +371,7 @@ def listMyCourses(email: str, password: str) -> dict:
         res = (
             supabase_client
             .table("courses")
-            .select("id, course_name")   # 🔥 sadece bunu değiştirdik
+            .select("id, name")
             .eq("instructor_id", instructor["id"])
             .execute()
         )

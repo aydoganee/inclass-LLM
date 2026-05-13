@@ -5,14 +5,14 @@ Tests for US-B: Student Authentication with Google Sign-In
 import pytest
 from unittest.mock import patch, MagicMock
 
-STUDENT_EMAIL = "student@test.com"
+STUDENT_EMAIL = "test@mef.edu.tr"
 
 
 def _make_student():
     return {
-        "id": "std-1",
+        "id": "uuid",
         "email": STUDENT_EMAIL,
-        "password_hash": "dummy_hash",
+        "password_hash": None,
     }
 
 
@@ -22,7 +22,7 @@ def test_student_login_google_success():
 
     student = _make_student()
 
-    with patch("app.services._verify_google_token", return_value=(True, None)), \
+    with patch("app.services._extract_google_email", return_value=("test@mef.edu.tr", None)), \
          patch("app.services.supabase_client") as mock_sb:
         
         m = MagicMock()
@@ -40,7 +40,7 @@ def test_student_login_google_invalid_token():
     """Invalid Google token must be rejected."""
     from app.services import studentLogin
 
-    with patch("app.services._verify_google_token", return_value=(False, "Invalid token")):
+    with patch("app.services._extract_google_email", side_effect=Exception("Invalid token")):
         result = studentLogin(email=STUDENT_EMAIL, password=None, token="invalid_token")
 
     assert result["ok"] is False
@@ -51,7 +51,7 @@ def test_student_login_google_email_mismatch():
     """Token email mismatch must be rejected."""
     from app.services import studentLogin
 
-    with patch("app.services._verify_google_token", return_value=(False, "Token email mismatch")):
+    with patch("app.services._extract_google_email", side_effect=Exception("Token email mismatch")):
         result = studentLogin(email="other@test.com", password=None, token="valid_token_for_student")
 
     assert result["ok"] is False
@@ -62,7 +62,7 @@ def test_student_login_google_unregistered_student():
     """Identity not mapped to a student account returns a clear error."""
     from app.services import studentLogin
 
-    with patch("app.services._verify_google_token", return_value=(True, None)), \
+    with patch("app.services._extract_google_email", return_value=("not_registered@test.com", None)), \
          patch("app.services.supabase_client") as mock_sb:
         
         m = MagicMock()

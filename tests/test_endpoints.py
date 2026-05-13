@@ -9,29 +9,29 @@ from unittest.mock import patch, MagicMock
 
 client = TestClient(app)
 
-INSTRUCTOR_EMAIL = "instructor@test.com"
-STUDENT_EMAIL = "student@test.com"
+INSTRUCTOR_EMAIL = "test@mef.edu.tr"
+STUDENT_EMAIL = "test@mef.edu.tr"
 
 
 def _make_instructor():
     return {
-        "id": "inst-1",
+        "id": "uuid",
         "email": INSTRUCTOR_EMAIL,
-        "password_hash": "dummy",
+        "password_hash": None,
     }
 
 
 def _make_student():
     return {
-        "id": "std-1",
+        "id": "uuid",
         "email": STUDENT_EMAIL,
-        "password_hash": "dummy",
+        "password_hash": None,
     }
 
 
 def test_instructor_login_endpoint_google_success():
     """Test POST /instructor/login with valid Google token."""
-    with patch("app.services._verify_google_token", return_value=(True, None)), \
+    with patch("app.services._extract_google_email", return_value=("test@mef.edu.tr", None)), \
          patch("app.services.supabase_client") as mock_sb:
         
         m = MagicMock()
@@ -52,7 +52,7 @@ def test_instructor_login_endpoint_google_success():
 
 def test_student_login_endpoint_google_success():
     """Test POST /student/login with valid Google token."""
-    with patch("app.services._verify_google_token", return_value=(True, None)), \
+    with patch("app.services._extract_google_email", return_value=("test@mef.edu.tr", None)), \
          patch("app.services.supabase_client") as mock_sb:
         
         m = MagicMock()

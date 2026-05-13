@@ -16,8 +16,8 @@ Polish and validate the InClass LLM Platform for demo readiness: deliver a worki
 
 | User Story | Description | SP | Assignee |
 |---|---|---|---|
-| US-T1 | Test Coverage: Implement unit tests for core service functions | 5 | Oğuzhan Elmas |
-| US-T2 | API Compliance: Verify all endpoint signatures match contract | 3 | Mustafa İlker Çınar |
+| US-T1 | Test Coverage: Implement unit tests for core service functions | 5 | Baran Azabağaoğlu |
+| US-T2 | API Compliance: Verify all endpoint signatures match contract | 3 | Ayhan Azra Kervan |
 | US-T3 | Export Scores: Validate CSV format and content | 3 | Oğuzhan Elmas |
 | US-T4 | Google Auth: End-to-end authentication flow test | 5 | Mustafa İlker Çınar |
 | US-T5 | Frontend UI: Basic web interface for instructor and student | 8 | Emin Altay Aydoğan |

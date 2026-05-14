@@ -1,0 +1,39 @@
+cc2c13a | 2026-05-13 | oguzhanelmas0 | US-T7: Add git tag, PR and code review evidence docs (May 14 final)
+1d27d7f | 2026-05-13 | oguzhanelmas0 | US-T7: Add all Sprint 1 evidence docs and traceability files
+aa91016 | 2026-05-13 | oguzhanelmas0 | US-T7: Add Definition of Done document
+aeb1392 | 2026-05-13 | oguzhanelmas0 | US-T7: Add Sprint 2 daily scrums, review and retrospective docs
+1537d74 | 2026-05-12 | oguzhanelmas0 | US-T7: Add Sprint 2 evidence docs (backlog, scope log, test matrix)
+eeefb72 | 2026-05-11 | oguzhanelmas0 | US-T7: Add prepare_submission.py and REPO_INFO.txt
+0d7bbee | 2026-05-07 | aydoganee | docs: add sprint 1 and sprint 2 scrum artifacts
+828b34e | 2026-05-07 | aydoganee | Merge pull request #11 from aydoganee/fix/api-signature-compliance
+1a83aac | 2026-05-07 | aydoganee | feat: signature accuration
+fbbec21 | 2026-05-07 | aydoganee | Merge pull request #4 from aydoganee/feature/US-H-start-end-activity
+101cc28 | 2026-05-07 | aydoganee | Merge pull request #5 from aydoganee/feature/US-I-student-access-control
+4c59e82 | 2026-05-07 | aydoganee | Merge pull request #6 from aydoganee/feature/US-G-update-activity
+c8cfa17 | 2026-05-07 | aydoganee | Merge pull request #9 from aydoganee/feature/US-D-US-L
+2139bc0 | 2026-05-07 | aydoganee | Merge pull request #7 from aydoganee/feat/scoring-and-reset
+d0d402e | 2026-05-07 | aydoganee | Merge branch 'main' into feat/scoring-and-reset
+50a6aad | 2026-05-03 | aydoganee | Merge pull request #10 from aydoganee/feature/us-j-improved-scoring
+0c95d4d | 2026-05-03 | aydoganee | feat: US-J/US-K improved objective detection with semantic fallback and mini-lesson
+ac0088a | 2026-05-02 | AzraKervann | US-D & US-L features implemented
+6eb6bc4 | 2026-04-27 | aydoganee | Update README.md
+6228489 | 2026-04-26 | AzraKervann | Revert "Revert "Revert "Merge pull request #8 from aydoganee/feature/us-d-list-my-courses"""
+71d4cdf | 2026-04-26 | AzraKervann | Revert "Revert "Merge pull request #8 from aydoganee/feature/us-d-list-my-courses""
+ba7a16e | 2026-04-26 | AzraKervann | Revert "Merge pull request #8 from aydoganee/feature/us-d-list-my-courses"
+19e6fb3 | 2026-04-26 | Ayhan Azra Kervan | Merge pull request #8 from aydoganee/feature/us-d-list-my-courses
+e7aa6e7 | 2026-04-26 | AzraKervann | feat: implement US-D list my courses
+1eee3e4 | 2026-04-25 | Baran Azabağaoğlu | feat(US-K, US-M): implemented duplicate score prevention and activity reset logic
+a44bb78 | 2026-04-23 | oguzhanelmas0 | US-G: Update activity text and objectives with tests
+d90085e | 2026-04-23 | oguzhanelmas0 | fix: Python 3.9 compatibility (from __future__ import annotations)
+32ba8b9 | 2026-04-23 | oguzhanelmas0 | US-I: Student access control for getActivity
+c0e789c | 2026-04-23 | oguzhanelmas0 | US-H: Start and end activity with tests
+3800811 | 2026-04-23 | milkercinar | Merge pull request #3 from aydoganee/feature/US-A-US-B-US-C-implementation
+aad0a8a | 2026-04-23 | milkercinar | feat:Google Auth Flow
+2d12d20 | 2026-04-23 | milkercinar | feat: Google Auth flow
+1e125cf | 2026-04-21 | aydoganee | chore: fix git identity to mef account
+9debc40 | 2026-04-21 | aydoganee | Merge pull request #2 from aydoganee/feature/us-f-create-activity
+1e1510a | 2026-04-21 | altay3445 | feat: US-F create activity endpoint - implemented in services.py and main.py
+bbf6450 | 2026-04-21 | aydoganee | Merge pull request #1 from aydoganee/feature/us-j-tutoring-flow
+c88126e | 2026-04-21 | altay3445 | feat: implement US-J tutoring flow with improved LLM prompt
+4d983e6 | 2026-04-15 | altay3445 | first commit
+6b4406c | 2026-04-15 | altay3445 | Initial commit: InClass LLM Platform FastAPI project

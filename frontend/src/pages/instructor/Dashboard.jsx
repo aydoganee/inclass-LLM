@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { useAuth } from '../../context/AuthContext'
+import AnimatedShaderBackground from '../../components/ui/animated-shader-background'
 
 const API = 'http://localhost:8000'
 
@@ -1021,9 +1022,16 @@ export default function InstructorDashboard() {
   if (!instructorCredentials) return null
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen bg-black text-white relative overflow-hidden">
+      {/* Animated shader background */}
+      <div className="fixed inset-0 z-0">
+        <AnimatedShaderBackground />
+      </div>
+      {/* Dark overlay so UI remains readable */}
+      <div className="fixed inset-0 z-0 bg-black/55 pointer-events-none" />
+
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-gray-950/80 backdrop-blur-md border-b border-gray-800/60">
+      <header className="sticky top-0 z-30 bg-black/40 backdrop-blur-md border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
@@ -1064,7 +1072,7 @@ export default function InstructorDashboard() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <main className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex flex-col lg:flex-row gap-8">
 
           {/* Courses panel */}

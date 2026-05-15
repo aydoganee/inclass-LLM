@@ -33,10 +33,10 @@ Polish and validate the InClass LLM Platform for demo readiness: deliver a worki
 | Person | Assigned Stories | SP |
 |---|---|---|
 | Emin Altay Aydoğan | US-T5 | 8 |
-| Mustafa İlker Çınar | US-T4, US-T2 | 8 |
-| Oğuzhan Elmas | US-T1, US-T3 | 8 |
-| Baran Azabağaoğlu | US-T6 (demo data) | - |
-| Ayhan Azra Kervan | US-T7 (submission) | - |
+| Mustafa İlker Çınar | US-T4 | 5 |
+| Oğuzhan Elmas |  US-T3 | 3 |
+| Baran Azabağaoğlu | US-T1 | 5 |
+| Ayhan Azra Kervan | US-T2 | 3 |
 | All | US-T6, US-T7 | shared |
 
 ---

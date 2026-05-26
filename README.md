@@ -1,5 +1,8 @@
 # InClass LLM Platform
 
+GROUP-12
+
+
 A FastAPI-based backend for the InClass LLM Platform.
 
 ## Setup
